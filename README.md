@@ -1,6 +1,6 @@
 # edgeai
 
-`edgeai` is a Rust CLI that bridges Telegram with a selected local LLM toolchain such as Claude Code, Codex CLI, OpenCode, OpenClaw, Hermes, or a custom OpenAI-compatible model API.
+`edgeai` is a Rust CLI that bridges Telegram with a local LLM toolchain — Claude Code or Codex CLI.
 
 The Telegram transport is implemented with `frankenstein` and Telegram Bot API long polling.
 
@@ -10,6 +10,8 @@ The Telegram transport is implemented with `frankenstein` and Telegram Bot API l
 - `edgeai exec`: run one local command through the shared shell execution layer
 - `edgeai config show`: inspect effective runtime config
 - `edgeai serve telegram`: start a Telegram long-polling bot backed by per-chat LLM sessions
+- `edgeai serve telegram -d`: run the bot in the background
+- `edgeai serve telegram --stop`: stop the background bot
 
 ## Architecture
 
@@ -38,7 +40,9 @@ The Telegram transport is implemented with `frankenstein` and Telegram Bot API l
 ```bash
 edgeai init
 edgeai config show
-edgeai serve telegram
+edgeai serve telegram        # foreground
+edgeai serve telegram -d     # background
+edgeai serve telegram --stop # stop background service
 ```
 
 ## Installation
@@ -87,9 +91,19 @@ Messages are forwarded to the configured LLM backend for allowed chats only. Rep
 
 ## Running And Logs
 
-**Run the service in release mode:**
+**Run the service in the foreground:**
 ```bash
 edgeai serve telegram
+```
+
+**Run the service in the background:**
+```bash
+edgeai serve telegram -d
+```
+
+**Stop the background service:**
+```bash
+edgeai serve telegram --stop
 ```
 
 **Run the service with debug logs enabled:**
@@ -127,10 +141,9 @@ tail -f ~/.config/edgeai/state/audit.log.jsonl
   - `TELEGRAM_POLL_INTERVAL_SECS`
   - `TELEGRAM_OFFSET_FILE`
 - `edgeai init` can:
-  - detect installed `claude` / `codex` / `opencode` / `openclaw` / `hermes`
+  - detect installed `claude` / `codex`
   - optionally install a missing CLI with the provider's recommended install command
   - configure Telegram bot token and allowed chat IDs
-  - configure a custom OpenAI-compatible model API endpoint, model, and API key
 
 ## Audit log
 
@@ -138,3 +151,7 @@ tail -f ~/.config/edgeai/state/audit.log.jsonl
 - One JSON object per line
 - Records inbound Telegram messages and success/failure metadata
 - Does not persist full stdout/stderr by default
+
+## License
+
+[GNU General Public License v3.0](LICENSE)

@@ -414,7 +414,7 @@ impl TelegramTransport {
                 body: help_text(),
                 extra_messages: Vec::new(),
                 post_action: None,
-                reply_markup: None,
+                reply_markup: Some(start_keyboard()),
             });
         }
 

@@ -72,6 +72,8 @@ pub async fn dispatch(
                     token: None,
                     allowed_chat_ids: vec![],
                     poll_interval_secs: None,
+                    daemonize: false,
+                    stop: false,
                 },
             )
             .await?;
@@ -86,6 +88,44 @@ pub async fn dispatch(
                         "Initialization has not been completed. Please run: edgeai init"
                     );
                 }
+                let pid_file = config.runtime.state_dir.join("telegram.pid");
+
+                if telegram.stop {
+                    let pid_str = std::fs::read_to_string(&pid_file)
+                        .context("no background service found (pid file missing)")?;
+                    let pid: u32 = pid_str.trim().parse().context("invalid pid file")?;
+                    // SIGTERM
+                    let ret = unsafe { libc::kill(pid as i32, libc::SIGTERM) };
+                    if ret != 0 {
+                        bail!("failed to stop process {pid}: no such process or permission denied");
+                    }
+                    std::fs::remove_file(&pid_file).ok();
+                    println!("edgeai serve telegram stopped (pid {pid})");
+                    return Ok(ExitCode::SUCCESS);
+                }
+
+                if telegram.daemonize {
+                    let exe = std::env::current_exe().context("cannot determine current executable path")?;
+                    let args: Vec<String> = std::env::args()
+                        .skip(1)
+                        .filter(|a| a != "-d" && a != "--daemonize")
+                        .collect();
+                    use std::os::unix::process::CommandExt;
+                    let child = std::process::Command::new(exe)
+                        .args(&args)
+                        .stdin(std::process::Stdio::null())
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .process_group(0) // new process group, immune to terminal SIGHUP
+                        .spawn()
+                        .context("failed to spawn background process")?;
+                    let pid = child.id();
+                    std::fs::write(&pid_file, pid.to_string())
+                        .context("failed to write pid file")?;
+                    println!("edgeai serve telegram running in background (pid {pid})");
+                    return Ok(ExitCode::SUCCESS);
+                }
+
                 let llm =
                     LlmClient::from_config(config.runtime.clone(), config.llm.clone()).await?;
                 let transport = Arc::new(

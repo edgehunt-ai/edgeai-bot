@@ -25,4 +25,12 @@ pub struct TelegramServeCmd {
     /// Poll interval in seconds for the future long-polling loop
     #[arg(long, env = "TELEGRAM_POLL_INTERVAL_SECS")]
     pub poll_interval_secs: Option<u64>,
+
+    /// Run in the background (daemonize)
+    #[arg(short = 'd', long)]
+    pub daemonize: bool,
+
+    /// Stop the background service
+    #[arg(long)]
+    pub stop: bool,
 }
