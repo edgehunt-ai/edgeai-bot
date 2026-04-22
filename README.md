@@ -43,7 +43,13 @@ edgeai serve telegram
 
 ## Installation
 
-**Linux / macOS (recommended):**
+**macOS / Linux (Homebrew):**
+```bash
+brew tap edgehunt-ai/edgeai
+brew install edgeai
+```
+
+**Linux / macOS (install script):**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/edgehunt-ai/edgeai-bot/main/scripts/install.sh | bash
 ```
