@@ -264,7 +264,7 @@ jobs:
             desc "CLI that bridges Telegram with local LLM toolchains"
             homepage "https://github.com/${GITHUB_REPOSITORY}"
             version "${VERSION}"
-            license "MIT"
+            license "GPL-3.0-only"
 
             on_macos do
               on_arm do
