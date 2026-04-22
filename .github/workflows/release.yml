@@ -1,0 +1,320 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+      - '**'
+    paths:
+      - Cargo.toml
+      - .github/workflows/release.yml
+      - Cargo.lock
+
+permissions:
+  contents: write
+
+env:
+  BIN_NAME: edgeai
+  HOMEBREW_TAP_REPO: edgehunt-ai/homebrew-edgeai
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  prepare-release:
+    name: Prepare Release
+    runs-on: ubuntu-24.04
+    outputs:
+      should_release: ${{ steps.detect.outputs.should_release }}
+      branch_name: ${{ steps.detect.outputs.branch_name }}
+      cargo_version: ${{ steps.detect.outputs.cargo_version }}
+      version: ${{ steps.detect.outputs.version }}
+      tag: ${{ steps.detect.outputs.tag }}
+      previous_tag: ${{ steps.detect.outputs.previous_tag }}
+      prerelease: ${{ steps.detect.outputs.prerelease }}
+      stable: ${{ steps.detect.outputs.stable }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate version and release channel
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          branch_name="${GITHUB_REF_NAME}"
+          if [[ -z "$branch_name" ]]; then
+            echo "Missing branch name from GitHub ref" >&2
+            exit 1
+          fi
+
+          cargo_version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)
+          if [[ -z "$cargo_version" ]]; then
+            echo "Failed to read version from Cargo.toml" >&2
+            exit 1
+          fi
+
+          version="$cargo_version"
+          tag="v$version"
+          is_main=false
+          if [[ "$branch_name" == "main" ]]; then
+            is_main=true
+          fi
+
+          prerelease=false
+          stable=false
+          if [[ "$version" == *-* ]]; then
+            prerelease=true
+          else
+            stable=true
+          fi
+
+          if [[ "$is_main" == "true" && "$prerelease" == "true" ]]; then
+            echo "main branch cannot publish prerelease versions: $version" >&2
+            exit 1
+          fi
+
+          if [[ "$is_main" != "true" && "$stable" == "true" ]]; then
+            echo "non-main branch must use prerelease versions with a suffix: $version" >&2
+            exit 1
+          fi
+
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "Tag $tag already exists"
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "branch_name=$branch_name" >> "$GITHUB_OUTPUT"
+            echo "version=$version" >> "$GITHUB_OUTPUT"
+            echo "cargo_version=$cargo_version" >> "$GITHUB_OUTPUT"
+            echo "tag=$tag" >> "$GITHUB_OUTPUT"
+            echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+            echo "stable=$stable" >> "$GITHUB_OUTPUT"
+            previous_tag=$(git tag --sort=-version:refname | head -n1 || true)
+            echo "previous_tag=$previous_tag" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "should_release=true" >> "$GITHUB_OUTPUT"
+          echo "branch_name=$branch_name" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "cargo_version=$cargo_version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "stable=$stable" >> "$GITHUB_OUTPUT"
+          previous_tag=$(git tag --sort=-version:refname | head -n1 || true)
+          echo "previous_tag=$previous_tag" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.asset_name }}
+    needs: prepare-release
+    if: needs.prepare-release.outputs.should_release == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            asset_name: edgeai-linux-x86_64
+            archive_ext: tar.gz
+            binary_name: edgeai
+          - os: ubuntu-24.04
+            target: aarch64-unknown-linux-gnu
+            asset_name: edgeai-linux-aarch64
+            archive_ext: tar.gz
+            binary_name: edgeai
+          - os: macos-14
+            target: x86_64-apple-darwin
+            asset_name: edgeai-macos-x86_64
+            archive_ext: tar.gz
+            binary_name: edgeai
+          - os: macos-14
+            target: aarch64-apple-darwin
+            asset_name: edgeai-macos-aarch64
+            archive_ext: tar.gz
+            binary_name: edgeai
+          - os: windows-2022
+            target: x86_64-pc-windows-msvc
+            asset_name: edgeai-windows-x86_64
+            archive_ext: zip
+            binary_name: edgeai.exe
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools (Linux aarch64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build release binary
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Package Unix artifact
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p dist/${{ matrix.asset_name }}
+          cp target/${{ matrix.target }}/release/${{ matrix.binary_name }} dist/${{ matrix.asset_name }}/
+          tar -C dist -czf dist/${{ matrix.asset_name }}.${{ matrix.archive_ext }} ${{ matrix.asset_name }}
+
+      - name: Package Windows artifact
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "dist/${{ matrix.asset_name }}" | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.binary_name }}" "dist/${{ matrix.asset_name }}/"
+          Compress-Archive -Path "dist/${{ matrix.asset_name }}" -DestinationPath "dist/${{ matrix.asset_name }}.${{ matrix.archive_ext }}" -Force
+
+      - name: Upload packaged artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: dist/${{ matrix.asset_name }}.${{ matrix.archive_ext }}
+
+  release:
+    name: Publish Release
+    needs:
+      - prepare-release
+      - build
+    if: needs.prepare-release.outputs.should_release == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create and push tag
+        env:
+          TAG: ${{ needs.prepare-release.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Build release notes
+        id: changelog
+        uses: mikepenz/release-changelog-builder-action@v5
+        with:
+          configuration: .github/release-changelog-config.json
+          mode: COMMIT
+          toTag: ${{ needs.prepare-release.outputs.tag }}
+          fromTag: ${{ needs.prepare-release.outputs.previous_tag }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish GitHub release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare-release.outputs.tag }}
+          name: ${{ needs.prepare-release.outputs.tag }}
+          body: ${{ steps.changelog.outputs.changelog }}
+          prerelease: ${{ needs.prepare-release.outputs.prerelease }}
+          files: dist/*
+
+      - name: Checkout Homebrew tap repository
+        if: needs.prepare-release.outputs.stable == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.HOMEBREW_TAP_REPO }}
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Update Homebrew formula
+        if: needs.prepare-release.outputs.stable == 'true'
+        env:
+          VERSION: ${{ needs.prepare-release.outputs.cargo_version }}
+          TAG: ${{ needs.prepare-release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          linux_x86_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/edgeai-linux-x86_64.tar.gz"
+          linux_arm_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/edgeai-linux-aarch64.tar.gz"
+          macos_x86_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/edgeai-macos-x86_64.tar.gz"
+          macos_arm_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/edgeai-macos-aarch64.tar.gz"
+
+          linux_x86_sha=$(sha256sum dist/edgeai-linux-x86_64.tar.gz | awk '{print $1}')
+          linux_arm_sha=$(sha256sum dist/edgeai-linux-aarch64.tar.gz | awk '{print $1}')
+          macos_x86_sha=$(sha256sum dist/edgeai-macos-x86_64.tar.gz | awk '{print $1}')
+          macos_arm_sha=$(sha256sum dist/edgeai-macos-aarch64.tar.gz | awk '{print $1}')
+
+          mkdir -p homebrew-tap/Formula
+          cat > homebrew-tap/Formula/edgeai.rb <<EOF
+          class Edgeai < Formula
+            desc "CLI that bridges Telegram with local LLM toolchains"
+            homepage "https://github.com/${GITHUB_REPOSITORY}"
+            version "${VERSION}"
+            license "MIT"
+
+            on_macos do
+              on_arm do
+                url "${macos_arm_url}"
+                sha256 "${macos_arm_sha}"
+              end
+
+              on_intel do
+                url "${macos_x86_url}"
+                sha256 "${macos_x86_sha}"
+              end
+            end
+
+            on_linux do
+              on_arm do
+                url "${linux_arm_url}"
+                sha256 "${linux_arm_sha}"
+              end
+
+              on_intel do
+                url "${linux_x86_url}"
+                sha256 "${linux_x86_sha}"
+              end
+            end
+
+            def install
+              bin.install "edgeai"
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/edgeai --version")
+            end
+          end
+          EOF
+
+      - name: Commit and push Homebrew formula update
+        if: needs.prepare-release.outputs.stable == 'true'
+        env:
+          VERSION: ${{ needs.prepare-release.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd homebrew-tap
+          if git diff --quiet; then
+            echo "No Homebrew formula changes to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/edgeai.rb
+          git commit -m "edgeai ${VERSION}"
+          git push origin HEAD

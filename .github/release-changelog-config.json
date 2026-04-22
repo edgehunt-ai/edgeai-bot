@@ -1,0 +1,26 @@
+{
+  "template": "#{{CHANGELOG}}",
+  "categories": [
+    {
+      "title": "## Features",
+      "labels": ["feat"]
+    },
+    {
+      "title": "## Fixes",
+      "labels": ["fix"]
+    },
+    {
+      "title": "## Performance",
+      "labels": ["perf"]
+    }
+  ],
+  "label_extractor": [
+    {
+      "pattern": "^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\\([\\w\\-.]+\\))?(!)?: .*$",
+      "target": "$1",
+      "on_property": "title"
+    }
+  ],
+  "commit_template": "- #{{TITLE}}",
+  "empty_template": "No user-facing changes in this release."
+}

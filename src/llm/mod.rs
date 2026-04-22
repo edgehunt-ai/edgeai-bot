@@ -1105,12 +1105,12 @@ pub fn provider_option_for(id: &str) -> Option<ProviderOption> {
     if id == "custom-api" {
         return Some(ProviderOption {
             id: "custom-api".to_string(),
-            label: "配置模型 API".to_string(),
+            label: "Configure Model API".to_string(),
             binary: None,
             installed: true,
             install_command: None,
             supports_native_sessions: false,
-            setup_hint: Some("需要提供兼容 OpenAI Chat Completions 的接口地址".to_string()),
+            setup_hint: Some("Requires a compatible OpenAI Chat Completions API endpoint URL".to_string()),
         });
     }
 
@@ -1140,7 +1140,7 @@ fn provider_presets() -> Vec<ProviderPreset> {
             label: "Claude Code",
             binary: "claude",
             install_command: "curl -fsSL https://claude.ai/install.sh | bash",
-            setup_hint: "安装后通常需要运行 `claude auth login` 或完成 Claude Code 登录",
+            setup_hint: "After installation, usually run `claude auth login` or complete the Claude Code login",
             supports_native_sessions: true,
         },
         ProviderPreset {
@@ -1148,7 +1148,7 @@ fn provider_presets() -> Vec<ProviderPreset> {
             label: "Codex CLI",
             binary: "codex",
             install_command: "npm install -g @openai/codex",
-            setup_hint: "安装后运行 `codex login` 完成认证",
+            setup_hint: "After installation, run `codex login` to complete authentication",
             supports_native_sessions: true,
         },
     ]
@@ -2666,9 +2666,9 @@ mod tests {
     fn codex_sample_parses_all_agent_messages_and_thread_id() {
         let sample = r#"{"type":"thread.started","thread_id":"019d9667-3905-7a71-990a-ccaff3ffd9da"}
 {"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"echo loading","status":"in_progress"}}
-{"type":"item.completed","item":{"id":"msg_1","type":"agent_message","text":"我会先用 `polymarket-news-impact` 看今天的重要新闻。"}}
-{"type":"item.completed","item":{"id":"msg_2","type":"agent_message","text":"本地数据层是可用的，可以继续往下查。"}}
-{"type":"item.completed","item":{"id":"msg_3","type":"agent_message","text":"新闻候选已经收敛，截至 `2026-04-16` 晚间可以先给出一版结果。"}}
+{"type":"item.completed","item":{"id":"msg_1","type":"agent_message","text":"I'll start by using `polymarket-news-impact` to check today's major news."}}
+{"type":"item.completed","item":{"id":"msg_2","type":"agent_message","text":"The local data layer is available, we can continue querying further."}}
+{"type":"item.completed","item":{"id":"msg_3","type":"agent_message","text":"News candidates have converged, an initial result can be provided as of the evening of `2026-04-16`."}}
 {"type":"turn.completed"}"#;
         let parsed = parse_codex_output(sample);
 
@@ -2677,10 +2677,10 @@ mod tests {
             Some("019d9667-3905-7a71-990a-ccaff3ffd9da")
         );
         let text = parsed.text.expect("expected codex assistant text");
-        assert!(text.contains("我会先用 `polymarket-news-impact`"));
-        assert!(text.contains("本地数据层是可用的"));
-        assert!(text.contains("新闻候选已经收敛"));
-        assert!(text.contains("截至 `2026-04-16` 晚间"));
+        assert!(text.contains("I'll start by using `polymarket-news-impact`"));
+        assert!(text.contains("The local data layer is available"));
+        assert!(text.contains("News candidates have converged"));
+        assert!(text.contains("as of the evening of `2026-04-16`"));
     }
 
     #[test]
@@ -2876,8 +2876,8 @@ mod tests {
     #[test]
     fn normalize_thread_title_trims_noise_and_limits_length() {
         assert_eq!(
-            normalize_thread_title("  ## `今天有什么大新闻影响了预测市场`  "),
-            Some("今天有什么大新闻影响了预测市场".to_string())
+            normalize_thread_title("  ## `What major news today affected prediction markets`  "),
+            Some("What major news today affected prediction markets".to_string())
         );
 
         let normalized = normalize_thread_title(
@@ -2897,7 +2897,7 @@ mod tests {
             },
             StoredMessage {
                 role: "user".to_string(),
-                content: "  `给我推荐排名前5的聪明钱` ".to_string(),
+                content: "  `Recommend the top 5 smart money traders for me` ".to_string(),
             },
             StoredMessage {
                 role: "user".to_string(),
@@ -2907,7 +2907,7 @@ mod tests {
 
         assert_eq!(
             generate_title_from_messages(&messages).as_deref(),
-            Some("给我推荐排名前5的聪明钱")
+            Some("Recommend the top 5 smart money traders for me")
         );
     }
 }
