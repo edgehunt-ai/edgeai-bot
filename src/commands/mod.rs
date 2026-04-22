@@ -8,7 +8,7 @@ use crate::config::{
     AppConfig, LlmConfig, PersistedConfig, TelegramConfig, default_config_file,
     load_persisted_config, save_persisted_config,
 };
-use crate::llm::{LlmClient, detected_provider_options, install_provider, provider_option_for};
+use crate::llm::{LlmClient, detected_provider_options, install_provider};
 use crate::output::{OutputMode, print_config, print_transport_status};
 use crate::session::SessionStore;
 use crate::shell::ShellExecutor;
@@ -19,7 +19,7 @@ use serde_json::Value;
 use std::io;
 use std::process::ExitCode;
 use std::sync::Arc;
-use tokio::time::{Duration, sleep};
+use tokio::time::Duration;
 
 pub async fn dispatch(
     command: Commands,
@@ -120,55 +120,33 @@ async fn run_init_wizard() -> Result<()> {
     section("Step 1/3  LLM Configuration");
     let provider = select_provider().await?;
 
-    let provider_config = if provider.id == "custom-api" {
-        let api_url = Text::new("API URL")
-            .with_help_message("Full endpoint URL compatible with OpenAI Chat Completions, e.g. https://api.openai.com/v1/chat/completions")
-            .prompt()
-            .map_err(|e| anyhow::anyhow!(e))?;
-        let model = Text::new("Model name")
-            .with_help_message("e.g. gpt-4o, claude-3-5-sonnet, etc.")
-            .prompt()
-            .map_err(|e| anyhow::anyhow!(e))?;
-        let api_key = Text::new("API Key")
-            .with_help_message("Optional, press Enter to skip")
-            .prompt_skippable()
-            .map_err(|e| anyhow::anyhow!(e))?
-            .filter(|s| !s.trim().is_empty());
-        LlmConfig {
-            provider: provider.id.clone(),
-            model: Some(model),
-            api_url: Some(api_url),
-            api_key,
-        }
-    } else {
-        if !provider.installed {
+    if !provider.installed {
+        println!();
+        hint(&format!("{} is not installed", provider.label));
+        if let Some(command) = provider.install_command.as_deref() {
+            hint(&format!("Install command: {command}"));
             println!();
-            hint(&format!("{} is not installed", provider.label));
-            if let Some(command) = provider.install_command.as_deref() {
-                hint(&format!("Install command: {command}"));
-                println!();
-                let yes = Confirm::new("Run installation now?")
-                    .with_default(true)
-                    .prompt()
-                    .map_err(|e| anyhow::anyhow!(e))?;
-                if yes {
-                    install_provider(&provider).await?;
-                    println!("\n  \x1b[1;32m✓ Installation complete\x1b[0m");
-                } else {
-                    bail!("Cancelled, initialization not completed");
-                }
+            let yes = Confirm::new("Run installation now?")
+                .with_default(true)
+                .prompt()
+                .map_err(|e| anyhow::anyhow!(e))?;
+            if yes {
+                install_provider(&provider).await?;
+                println!("\n  \x1b[1;32m✓ Installation complete\x1b[0m");
+            } else {
+                bail!("Cancelled, initialization not completed");
             }
         }
-        if let Some(setup_hint) = provider.setup_hint.as_deref() {
-            println!();
-            hint(&format!("Hint: {setup_hint}"));
-        }
-        LlmConfig {
-            provider: provider.id.clone(),
-            model: None,
-            api_url: None,
-            api_key: None,
-        }
+    }
+    if let Some(setup_hint) = provider.setup_hint.as_deref() {
+        println!();
+        hint(&format!("Hint: {setup_hint}"));
+    }
+    let provider_config = LlmConfig {
+        provider: provider.id.clone(),
+        model: None,
+        api_url: None,
+        api_key: None,
     };
 
     // ── Step 2: Telegram ─────────────────────────────────
@@ -254,8 +232,7 @@ fn mask_token(token: &str) -> String {
 }
 
 async fn select_provider() -> Result<crate::llm::ProviderOption> {
-    let mut options = detected_provider_options();
-    options.push(provider_option_for("custom-api").context("missing custom-api provider option")?);
+    let options = detected_provider_options();
 
     let labels: Vec<String> = options
         .iter()
@@ -356,7 +333,7 @@ async fn prompt_allowed_chat_ids(bot_token: &str, existing: &[i64]) -> Result<Ve
 }
 
 async fn latest_update_id(bot_token: &str) -> Result<Option<i64>> {
-    let resp = fetch_telegram_updates(bot_token, None).await?;
+    let resp = fetch_telegram_updates(bot_token, None, 0).await?;
     Ok(resp["result"]
         .as_array()
         .and_then(|updates| updates.iter().filter_map(|update| update["update_id"].as_i64()).max()))
@@ -368,40 +345,45 @@ async fn wait_for_matching_chat_id(
     expected_text: &str,
 ) -> Result<i64> {
     let mut offset = baseline_update_id.map(|id| id + 1);
-    for _ in 0..10 {
-        let resp = fetch_telegram_updates(bot_token, offset).await?;
+    for _ in 0..20 {
+        let resp = fetch_telegram_updates(bot_token, offset, 25).await?;
         if let Some(updates) = resp["result"].as_array() {
-            if let Some(latest_seen) = updates.iter().filter_map(|update| update["update_id"].as_i64()).max()
-            {
+            if let Some(latest_seen) = updates.iter().filter_map(|u| u["update_id"].as_i64()).max() {
                 offset = Some(latest_seen + 1);
             }
             if let Some(chat_id) = find_chat_id_for_text(updates, expected_text) {
                 return Ok(chat_id);
             }
         }
-        sleep(Duration::from_secs(2)).await;
     }
 
     bail!("The verification message was not detected. Please confirm you sent the exact text to the bot, then re-run initialization")
 }
 
-async fn fetch_telegram_updates(bot_token: &str, offset: Option<i64>) -> Result<Value> {
+async fn fetch_telegram_updates(bot_token: &str, offset: Option<i64>, timeout_secs: u64) -> Result<Value> {
     let url = format!("https://api.telegram.org/bot{bot_token}/getUpdates");
-    let client = reqwest::Client::new();
-    let request = client.get(&url);
-    let request = if let Some(offset) = offset {
-        request.query(&[("offset", offset)])
-    } else {
-        request
-    };
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(timeout_secs + 5))
+        .build()?;
+    let mut request = client.get(&url).query(&[("timeout", timeout_secs)]);
+    if let Some(offset) = offset {
+        request = request.query(&[("offset", offset)]);
+    }
 
-    request
+    let resp: Value = request
         .send()
         .await
         .context("Failed to call Telegram API")?
         .json()
         .await
-        .context("Failed to parse Telegram response")
+        .context("Failed to parse Telegram response")?;
+
+    if resp["ok"].as_bool() == Some(false) {
+        let desc = resp["description"].as_str().unwrap_or("unknown error");
+        bail!("Telegram API error: {desc}");
+    }
+
+    Ok(resp)
 }
 
 fn find_chat_id_for_text(updates: &[Value], expected_text: &str) -> Option<i64> {

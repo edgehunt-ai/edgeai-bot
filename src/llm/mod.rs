@@ -1101,23 +1101,6 @@ pub fn detected_provider_options() -> Vec<ProviderOption> {
         .collect()
 }
 
-pub fn provider_option_for(id: &str) -> Option<ProviderOption> {
-    if id == "custom-api" {
-        return Some(ProviderOption {
-            id: "custom-api".to_string(),
-            label: "Configure Model API".to_string(),
-            binary: None,
-            installed: true,
-            install_command: None,
-            supports_native_sessions: false,
-            setup_hint: Some("Requires a compatible OpenAI Chat Completions API endpoint URL".to_string()),
-        });
-    }
-
-    detected_provider_options()
-        .into_iter()
-        .find(|option| option.id == id)
-}
 
 pub async fn install_provider(option: &ProviderOption) -> Result<()> {
     let command = option
