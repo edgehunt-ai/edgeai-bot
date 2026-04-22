@@ -96,8 +96,11 @@ pub async fn dispatch(
                         let pid_str = std::fs::read_to_string(&pid_file)
                             .context("no background service found (pid file missing)")?;
                         let pid: u32 = pid_str.trim().parse().context("invalid pid file")?;
-                        let ret = unsafe { libc::kill(pid as i32, libc::SIGTERM) };
-                        if ret != 0 {
+                        let status = std::process::Command::new("kill")
+                            .arg(pid.to_string())
+                            .status()
+                            .context("failed to run kill")?;
+                        if !status.success() {
                             bail!("failed to stop process {pid}: no such process or permission denied");
                         }
                         std::fs::remove_file(&pid_file).ok();

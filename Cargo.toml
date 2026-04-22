@@ -19,8 +19,5 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1.8", features = ["v4"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"
-
 [dev-dependencies]
 tempfile = "3"
