@@ -49,6 +49,11 @@ brew tap edgehunt-ai/edgeai
 brew install edgeai
 ```
 
+**Upgrade (Homebrew):**
+```bash
+brew update && brew upgrade edgeai
+```
+
 **Linux / macOS (install script):**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/edgehunt-ai/edgeai-bot/main/scripts/install.sh | bash
