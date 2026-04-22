@@ -308,13 +308,13 @@ jobs:
         run: |
           set -euo pipefail
           cd homebrew-tap
-          if git diff --quiet; then
+          git add Formula/edgeai.rb
+          if git diff --cached --quiet; then
             echo "No Homebrew formula changes to commit."
             exit 0
           fi
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Formula/edgeai.rb
           git commit -m "edgeai ${VERSION}"
           git push origin HEAD
